@@ -9,6 +9,10 @@ require 'uri'
 # Load the HTTP library
 require 'net/http'
 
+# Load the image library
+require 'RMagick'
+include Magick
+
 # Load the models
 Dir[File.join(File.dirname(__FILE__),"models","*.rb")].each {|file| require file }
 
@@ -16,6 +20,7 @@ Dir[File.join(File.dirname(__FILE__),"models","*.rb")].each {|file| require file
 FEED_URL = "http://www.redbubble.com/people/purpleelephant/collections/8442-fine-art-prints.atom"
 DEFAULT_IMAGE_SIZE = "550x550" # At the moment, this is the image size used in the RSS feed
 PREFERED_IMAGE_SIZE = "800x800" # This is currently the maximum image size supported by redbubble
+SCALE_TO = 930 # Ideal width / height (depending on orientation) 
 
 # Regular Expressions
 PRODUCT_EXP = /<a([^>]*)products([^>]*)><img([^>]*)\/><\/a>/ # This is used to match images nested in <a> tags where the href points to a product url
@@ -38,7 +43,7 @@ def fetch
     photo.published_at = entry.published
     photo.categories = entry.categories
 
-    download_image(entry.links[1].gsub(DEFAULT_IMAGE_SIZE, PREFERED_IMAGE_SIZE), "photos", photo_counter)
+    download_image(entry.links[1].gsub(DEFAULT_IMAGE_SIZE, PREFERED_IMAGE_SIZE), "photos", photo_counter, true)
 
     photo.products = []
 
@@ -68,14 +73,16 @@ def fetch
 end
 
 # Go download image from url, into directory using id as the unique filename
-def download_image(url, directory, id)
+def download_image(url, directory, id, resize = false)
   uri = URI.parse(URI.escape(url))
+  destination = File.join(File.dirname(__FILE__), "images", directory)
+  filename = File.join(destination, "#{id}.jpg")
 
   begin
     Net::HTTP.start(uri.host) do |http|
       resp = http.get(uri.path)
       begin
-        f = open(File.join(File.dirname(__FILE__), "images", directory, "#{id}.jpg"), "wb")
+        f = open(filename, "wb")
         http.request_get(uri.path) do |resp|
           resp.read_body do |segment|
             f.write(segment)
@@ -88,6 +95,18 @@ def download_image(url, directory, id)
   rescue => e
     puts "Error downloading #{url}"
     puts e.message
+    resize = false
+  end
+  
+  # Resize the image if nessasary
+  if resize
+    begin
+      resized_filename = File.join(destination, "#{id}_resized.jpg")
+      ImageList.new(filename).resize_to_fit(SCALE_TO, SCALE_TO).write(resized_filename)
+    rescue => e
+      puts "Error resizing image"
+      puts e.message
+    end
   end
 end
 
